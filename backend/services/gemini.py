@@ -5,7 +5,7 @@ from typing import Dict, Optional
 
 # Imports absolutos para funcionar ao rodar `python app.py` dentro de backend/
 from utils import nlp  # type: ignore
-from config.settings import GEMINI_API_KEY
+from config.settings import GEMINI_API_KEY, GEMINI_MODEL
 
 # --- Constantes de Prompts ---
 
@@ -101,6 +101,9 @@ def _ensure_configured() -> None:
         )
     genai.configure(api_key=GEMINI_API_KEY)
 
+def _get_model() -> genai.GenerativeModel:
+    return genai.GenerativeModel(GEMINI_MODEL)
+
 def classify_email(content: str, subject: Optional[str] = None, guidelines: Optional[str] = None) -> str:
     """
     Classifica o conteúdo como 'Produtivo' ou 'Improdutivo'.
@@ -108,7 +111,7 @@ def classify_email(content: str, subject: Optional[str] = None, guidelines: Opti
     """
     _ensure_configured()
     cleaned = nlp.preprocess_text(content)
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    model = _get_model()
     
     guideline_text = (
         "\nDiretrizes do usuário (priorize estas ao classificar):\n" + guidelines.strip() + "\n"
@@ -142,7 +145,7 @@ def generate_response(classification: str, content: str, subject: str | None = N
     }
     """
     _ensure_configured()
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    model = _get_model()
     cls = classification.strip().capitalize()
 
     if cls == "Improdutivo":

@@ -46,6 +46,14 @@ class HttpService {
       body: data ? JSON.stringify(data) : undefined,
     });
   }
+
+  async put<T>(endpoint: string, data?: any, headers?: Record<string, string>): Promise<T> {
+    return this.makeRequest<T>(endpoint, {
+      method: 'PUT',
+      headers,
+      body: data ? JSON.stringify(data) : undefined,
+    });
+  }
 }
 
 export const httpService = new HttpService();

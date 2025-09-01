@@ -6,7 +6,7 @@ Classifica e-mails (Produtivo vs. Improdutivo), sugere respostas com Gemini e in
 
 - Backend: Flask (Python) com endpoints para classificar e gerar respostas (Google Gemini) e integrar com Gmail.
 - Frontend: React + Vite (TypeScript).
-- IA: Google Generative AI (gemini-1.5-flash).
+- IA: Google Generative AI (padrão: `gemini-2.5-flash`, configurável via `GEMINI_MODEL`).
 - Login/Permissões: Google Identity Services + Gmail API.
 
 ## Requisitos
