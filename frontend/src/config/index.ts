@@ -2,9 +2,22 @@
  * Configurações centralizadas da aplicação
  */
 
+declare global {
+  interface Window {
+    __RUNTIME_CONFIG__?: {
+      backendUrl?: string;
+    };
+  }
+}
+
+const runtimeUrl = window.__RUNTIME_CONFIG__?.backendUrl;
+const buildTimeUrl = import.meta.env.VITE_BACKEND_URL as string | undefined;
+
 export const config = {
-  // URLs
-  backendUrl: import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000',
+  backendUrl:
+    runtimeUrl !== undefined
+      ? runtimeUrl
+      : buildTimeUrl || (import.meta.env.PROD ? '' : 'http://localhost:5000'),
   
   // Google APIs
   google: {
