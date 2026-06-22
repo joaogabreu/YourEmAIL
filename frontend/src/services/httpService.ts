@@ -10,7 +10,7 @@ interface RequestConfig {
   body?: string;
 }
 
-class HttpService {
+export class HttpService {
   private baseUrl: string;
 
   constructor(baseUrl: string = config.backendUrl) {

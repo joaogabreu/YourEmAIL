@@ -12,6 +12,9 @@ export default defineConfig(({ mode }) => {
       server: {
         port: 5173,
         host: true
-      }
+      },
+      test: {
+        environment: 'node',
+      },
     };
 });
