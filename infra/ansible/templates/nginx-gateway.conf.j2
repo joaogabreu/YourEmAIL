@@ -1,0 +1,30 @@
+upstream api_backend {
+    server {{ api1_host | default(hostvars[groups['api1'][0]]['ansible_host']) }}:{{ api1_port | default(5000) }};
+}
+
+upstream api_frontend {
+    server {{ frontend_host | default('127.0.0.1:30080') }};
+}
+
+server {
+    listen 80;
+    server_name _;
+    client_max_body_size 10m;
+
+    location /health {
+        include /etc/nginx/proxy-params.conf;
+        proxy_pass http://api_backend/;
+    }
+
+    location /api/ {
+        include /etc/nginx/proxy-params.conf;
+        proxy_pass http://api_backend;
+        proxy_connect_timeout 30s;
+        proxy_read_timeout 120s;
+    }
+
+    location / {
+        include /etc/nginx/proxy-params.conf;
+        proxy_pass http://api_frontend;
+    }
+}

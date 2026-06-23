@@ -1,0 +1,160 @@
+---
+- name: install cluster addons
+  ansible.builtin.import_playbook: install-cluster-addons.yml
+
+- name: deploy k8s
+  hosts: ci
+  become: false
+  vars_files:
+    - ../group_vars/all.yml
+
+  tasks:
+    - name: paths
+      ansible.builtin.set_fact:
+        k8s_src: "{{ kubernetes_manifests_dir | default('/opt/youremail/kubernetes') }}"
+        k8s_rendered: "/tmp/youremail-k8s-apply"
+
+    - name: reset rendered dir
+      ansible.builtin.file:
+        path: "{{ k8s_rendered }}"
+        state: absent
+
+    - name: copy manifests
+      ansible.builtin.copy:
+        src: "{{ k8s_src }}/"
+        dest: "{{ k8s_rendered }}/"
+        mode: preserve
+
+    - name: patch deployment image
+      ansible.builtin.replace:
+        path: "{{ k8s_rendered }}/deployment.yaml"
+        regexp: 'ECR_API2_IMAGE:latest'
+        replace: "{{ ecr_image_api2 }}:{{ image_tag }}"
+
+    - name: patch ingress subnets
+      ansible.builtin.replace:
+        path: "{{ k8s_rendered }}/ingress.yaml"
+        regexp: '__PUBLIC_SUBNET_IDS__'
+        replace: "{{ public_subnet_ids }}"
+
+    - name: patch gateway ip
+      ansible.builtin.replace:
+        path: "{{ k8s_rendered }}/service-gateway.yaml"
+        regexp: '__GATEWAY_PRIVATE_IP__'
+        replace: "{{ gateway_private_ip }}"
+
+    - name: patch rds read host
+      ansible.builtin.replace:
+        path: "{{ k8s_rendered }}/database/statefulset-replica.yaml"
+        regexp: '__RDS_READ_HOST__'
+        replace: "{{ rds_read_endpoint }}"
+
+    - name: patch postgres password
+      ansible.builtin.replace:
+        path: "{{ k8s_rendered }}/database/statefulset-replica.yaml"
+        regexp: '__POSTGRES_PASSWORD__'
+        replace: "{{ rds_password }}"
+
+    - name: patch replication password
+      ansible.builtin.replace:
+        path: "{{ k8s_rendered }}/database/statefulset-replica.yaml"
+        regexp: '__REPLICATION_PASSWORD__'
+        replace: "{{ rds_replication_password | default(rds_password) }}"
+
+    - name: ensure replication user on rds
+      ansible.builtin.shell: |
+        set -e
+        export PGPASSWORD='{{ rds_password }}'
+        EXISTS=$(psql -h {{ rds_endpoint }} -U {{ rds_username }} -d {{ rds_db_name }} -tAc \
+          "SELECT 1 FROM pg_roles WHERE rolname='replicator'")
+        if [ "$EXISTS" != "1" ]; then
+          psql -h {{ rds_endpoint }} -U {{ rds_username }} -d {{ rds_db_name }} -c \
+            "CREATE ROLE replicator WITH REPLICATION LOGIN PASSWORD '{{ rds_replication_password | default(rds_password) }}';"
+          psql -h {{ rds_endpoint }} -U {{ rds_username }} -d {{ rds_db_name }} -c \
+            "GRANT rds_replication TO replicator;"
+          psql -h {{ rds_endpoint }} -U {{ rds_username }} -d {{ rds_db_name }} -c \
+            "GRANT CONNECT ON DATABASE {{ rds_db_name }} TO replicator;"
+        fi
+      changed_when: false
+      failed_when: false
+
+    - name: apply base
+      ansible.builtin.command:
+        cmd: kubectl apply -f {{ item }}
+      loop:
+        - "{{ k8s_rendered }}/namespace.yaml"
+        - "{{ k8s_rendered }}/limit-range.yaml"
+        - "{{ k8s_rendered }}/resource-quota.yaml"
+
+    - name: apply database
+      ansible.builtin.command:
+        cmd: kubectl apply -f {{ k8s_rendered }}/database/
+
+    - name: apply app
+      ansible.builtin.command:
+        cmd: kubectl apply -f {{ item }}
+      loop:
+        - "{{ k8s_rendered }}/service-gateway.yaml"
+        - "{{ k8s_rendered }}/deployment.yaml"
+        - "{{ k8s_rendered }}/service.yaml"
+        - "{{ k8s_rendered }}/ingress.yaml"
+        - "{{ k8s_rendered }}/hpa.yaml"
+
+    - name: rollout frontend
+      ansible.builtin.command:
+        cmd: kubectl rollout status deployment/youremail-frontend -n youremail --timeout=300s
+
+    - name: worker node ip
+      ansible.builtin.command:
+        cmd: >-
+          kubectl get nodes -o jsonpath={.items[0].status.addresses[?(@.type=="InternalIP")].address}
+      register: worker_node_ip
+      changed_when: false
+
+    - name: save frontend host
+      ansible.builtin.set_fact:
+        frontend_node_host: "{{ worker_node_ip.stdout }}:30080"
+
+- name: deploy gateway
+  hosts: gateway
+  become: true
+  vars:
+    frontend_host: "{{ hostvars[groups['ci'][0]]['frontend_node_host'] | default('127.0.0.1:30080') }}"
+
+  tasks:
+    - name: nginx package
+      ansible.builtin.package:
+        name: nginx
+        state: present
+
+    - name: proxy params
+      ansible.builtin.copy:
+        src: ../../gateway/proxy-params.conf
+        dest: /etc/nginx/proxy-params.conf
+        mode: "0644"
+      notify: reload nginx
+
+    - name: nginx config
+      ansible.builtin.template:
+        src: ../templates/nginx-gateway.conf.j2
+        dest: "{{ gateway_config_dest | default('/etc/nginx/conf.d/youremail.conf') }}"
+        mode: "0644"
+      notify: reload nginx
+
+    - name: remove default site
+      ansible.builtin.file:
+        path: /etc/nginx/conf.d/default.conf
+        state: absent
+      ignore_errors: true
+
+    - name: nginx service
+      ansible.builtin.service:
+        name: nginx
+        state: started
+        enabled: true
+
+  handlers:
+    - name: reload nginx
+      ansible.builtin.service:
+        name: nginx
+        state: reloaded

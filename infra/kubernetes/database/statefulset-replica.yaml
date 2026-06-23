@@ -1,0 +1,131 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-replica-config
+  namespace: youremail
+data:
+  POSTGRES_DB: youremail
+  POSTGRES_USER: youremail
+  PGDATA: /var/lib/postgresql/data/pgdata
+  PRIMARY_HOST: __RDS_READ_HOST__
+  PRIMARY_PORT: "5432"
+  REPLICATION_USER: replicator
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-replica-secret
+  namespace: youremail
+type: Opaque
+stringData:
+  POSTGRES_PASSWORD: __POSTGRES_PASSWORD__
+  REPLICATION_PASSWORD: __REPLICATION_PASSWORD__
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres-replica
+  namespace: youremail
+  labels:
+    app: postgres-replica
+spec:
+  serviceName: postgres-replica
+  replicas: 2
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app: postgres-replica
+  template:
+    metadata:
+      labels:
+        app: postgres-replica
+        role: replica
+    spec:
+      initContainers:
+        - name: bootstrap-from-rds-read
+          image: postgres:15-alpine
+          envFrom:
+            - configMapRef:
+                name: postgres-replica-config
+            - secretRef:
+                name: postgres-replica-secret
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              if [ -f "${PGDATA}/PG_VERSION" ]; then
+                exit 0
+              fi
+              mkdir -p "${PGDATA}"
+              chmod 700 "${PGDATA}"
+              until pg_isready -h "${PRIMARY_HOST}" -p "${PRIMARY_PORT}" -U "${REPLICATION_USER}" -q; do
+                sleep 5
+              done
+              PGPASSWORD="${REPLICATION_PASSWORD}" pg_basebackup \
+                -h "${PRIMARY_HOST}" -p "${PRIMARY_PORT}" \
+                -U "${REPLICATION_USER}" -D "${PGDATA}" \
+                -Fp -Xs -P -R -v
+              chown -R 999:999 /var/lib/postgresql/data
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+      containers:
+        - name: postgres
+          image: postgres:15-alpine
+          ports:
+            - containerPort: 5432
+              name: postgres
+          envFrom:
+            - configMapRef:
+                name: postgres-replica-config
+            - secretRef:
+                name: postgres-replica-secret
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          livenessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - youremail
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - youremail
+            initialDelaySeconds: 10
+            periodSeconds: 5
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 5Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-replica
+  namespace: youremail
+spec:
+  clusterIP: None
+  selector:
+    app: postgres-replica
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres

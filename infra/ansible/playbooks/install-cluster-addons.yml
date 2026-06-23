@@ -1,0 +1,20 @@
+---
+- name: install cluster addons
+  hosts: ci
+  become: false
+  vars_files:
+    - ../group_vars/all.yml
+
+  tasks:
+    - name: kubeconfig
+      ansible.builtin.command:
+        cmd: aws eks update-kubeconfig --name {{ eks_cluster_name }} --region {{ aws_region }}
+      changed_when: false
+
+    - name: eks addons
+      ansible.builtin.script:
+        cmd: ../../scripts/eks-addons.sh
+      environment:
+        EKS_CLUSTER: "{{ eks_cluster_name }}"
+        AWS_REGION: "{{ aws_region }}"
+        AWS_ACCOUNT_ID: "{{ aws_account_id }}"
