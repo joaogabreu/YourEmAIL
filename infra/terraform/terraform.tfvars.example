@@ -1,0 +1,11 @@
+project_name = "youremail"
+environment  = "homolog"
+aws_region   = "us-east-1"
+
+db_username = "youremail"
+db_password = "CHANGE_ME_STRONG_PASSWORD"
+db_name     = "youremail"
+
+allowed_ssh_cidr = "0.0.0.0/0"
+
+create_read_replica = true
