@@ -1,0 +1,12 @@
+name: YourEmAIL Pipeline
+
+on:
+  push:
+    branches: [main, api-gateway]
+  pull_request:
+    branches: [main]
+
+jobs:
+  pipeline:
+    uses: ./infra/.github/workflows/pipeline.yml
+    secrets: inherit
