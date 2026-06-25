@@ -1,5 +1,5 @@
 locals {
-  ssh_public_key = file(abspath("${path.module}/../../.infra/youremail-key.pub"))
+  ssh_public_key = var.ssh_public_key != "" ? var.ssh_public_key : file(abspath("${path.module}/../../.infra/youremail-key.pub"))
 }
 
 module "storage" {

@@ -18,6 +18,12 @@
         state: started
         enabled: true
 
+    - name: ssm-user no grupo docker
+      ansible.builtin.user:
+        name: ssm-user
+        groups: docker
+        append: true
+
     - name: ecr login
       community.docker.docker_login:
         registry_url: "{{ ecr_registry }}"

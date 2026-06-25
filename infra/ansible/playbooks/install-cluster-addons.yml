@@ -9,12 +9,31 @@
     - name: kubeconfig
       ansible.builtin.command:
         cmd: aws eks update-kubeconfig --name {{ eks_cluster_name }} --region {{ aws_region }}
+      environment:
+        PATH: "/usr/local/bin:/usr/bin:/bin:{{ ansible_env.PATH | default('') }}"
       changed_when: false
 
+    - name: kubectl presente
+      ansible.builtin.stat:
+        path: /usr/local/bin/kubectl
+      register: kubectl_bin
+
+    - name: instala kubectl se ausente
+      ansible.builtin.shell: |
+        set -euo pipefail
+        curl -fsSL -o /tmp/kubectl \
+          "https://dl.k8s.io/release/$(curl -fsSL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+        install -o root -g root -m 0755 /tmp/kubectl /usr/local/bin/kubectl
+      become: true
+      when: not kubectl_bin.stat.exists
+
     - name: eks addons
-      ansible.builtin.script:
-        cmd: ../../scripts/eks-addons.sh
+      ansible.builtin.command:
+        argv:
+          - /bin/bash
+          - /opt/youremail/scripts/eks-addons.sh
       environment:
+        PATH: "/usr/local/bin:/usr/bin:/bin:{{ ansible_env.PATH | default('') }}"
         EKS_CLUSTER: "{{ eks_cluster_name }}"
         AWS_REGION: "{{ aws_region }}"
         AWS_ACCOUNT_ID: "{{ aws_account_id }}"

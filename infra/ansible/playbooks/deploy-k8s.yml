@@ -5,6 +5,8 @@
 - name: deploy k8s
   hosts: ci
   become: false
+  environment:
+    PATH: "/usr/local/bin:/usr/bin:/bin:{{ ansible_env.PATH | default('') }}"
   vars_files:
     - ../group_vars/all.yml
 
@@ -106,8 +108,12 @@
 
     - name: worker node ip
       ansible.builtin.command:
-        cmd: >-
-          kubectl get nodes -o jsonpath={.items[0].status.addresses[?(@.type=="InternalIP")].address}
+        argv:
+          - kubectl
+          - get
+          - nodes
+          - "-o"
+          - 'jsonpath={.items[0].status.addresses[?(@.type=="InternalIP")].address}'
       register: worker_node_ip
       changed_when: false
 

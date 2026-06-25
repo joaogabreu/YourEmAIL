@@ -14,6 +14,7 @@ WORKDIR /app
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl \
+    && apt-get upgrade -y \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /install /usr/local

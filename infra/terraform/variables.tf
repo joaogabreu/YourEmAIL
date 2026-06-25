@@ -68,6 +68,12 @@ variable "allowed_ssh_cidr" {
   default = "0.0.0.0/0"
 }
 
+variable "ssh_public_key" {
+  type        = string
+  description = "Chave publica SSH para EC2 (CI via TF_VAR_ssh_public_key; local via .infra/youremail-key.pub)."
+  default     = ""
+}
+
 variable "create_read_replica" {
   type    = bool
   default = true

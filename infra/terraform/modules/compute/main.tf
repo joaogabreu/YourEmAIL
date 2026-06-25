@@ -225,6 +225,7 @@ locals {
     systemctl enable docker
     systemctl start docker
     usermod -aG docker ec2-user
+    id ssm-user >/dev/null 2>&1 && usermod -aG docker ssm-user || true
   EOF
 }
 
@@ -349,6 +350,30 @@ resource "aws_iam_role_policy" "ci_ecr" {
         "ecr:InitiateLayerUpload",
         "ecr:UploadLayerPart",
         "ecr:CompleteLayerUpload"
+      ]
+      Resource = "*"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "ci_eks_addons" {
+  name = "${var.project_name}-${var.environment}-ci-eks-addons"
+  role = aws_iam_role.ci.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = [
+        "iam:ListOpenIDConnectProviders",
+        "iam:CreateOpenIDConnectProvider",
+        "iam:GetPolicy",
+        "iam:CreatePolicy",
+        "iam:GetRole",
+        "iam:CreateRole",
+        "iam:AttachRolePolicy",
+        "iam:TagOpenIDConnectProvider",
+        "iam:TagRole"
       ]
       Resource = "*"
     }]
@@ -535,6 +560,16 @@ resource "aws_eks_node_group" "workers" {
     aws_iam_role_policy_attachment.eks_cni_policy,
     aws_iam_role_policy_attachment.eks_ecr_read_only,
   ]
+}
+
+resource "aws_security_group_rule" "ci_to_eks_api" {
+  type                     = "ingress"
+  from_port                = 443
+  to_port                  = 443
+  protocol                 = "tcp"
+  security_group_id        = aws_eks_cluster.main.vpc_config[0].cluster_security_group_id
+  source_security_group_id = aws_security_group.ci.id
+  description              = "CI instance to EKS Kubernetes API (private endpoint)"
 }
 
 resource "aws_security_group_rule" "gateway_to_eks_nodeport" {

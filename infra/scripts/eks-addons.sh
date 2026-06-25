@@ -1,13 +1,44 @@
+#!/usr/bin/env bash
 set -euo pipefail
 
 EKS_CLUSTER="${EKS_CLUSTER:-youremail-homolog}"
 AWS_REGION="${AWS_REGION:-us-east-1}"
 AWS_ACCOUNT_ID="${AWS_ACCOUNT_ID:?AWS_ACCOUNT_ID obrigatorio}"
 
+export PATH="/usr/local/bin:/usr/bin:/bin:${PATH:-}"
+
+KUBECTL="$(command -v kubectl || true)"
+if [ -z "$KUBECTL" ] && [ -x /usr/local/bin/kubectl ]; then
+  KUBECTL=/usr/local/bin/kubectl
+fi
+if [ -z "$KUBECTL" ]; then
+  echo "kubectl nao encontrado em PATH nem em /usr/local/bin/kubectl" >&2
+  exit 127
+fi
+
+HELM="$(command -v helm || true)"
+if [ -z "$HELM" ] && [ -x /usr/local/bin/helm ]; then
+  HELM=/usr/local/bin/helm
+fi
+
 aws eks update-kubeconfig --name "$EKS_CLUSTER" --region "$AWS_REGION" >/dev/null
 
-if ! command -v helm >/dev/null 2>&1; then
+if "$KUBECTL" get deployment aws-load-balancer-controller -n kube-system >/dev/null 2>&1 \
+  && "$KUBECTL" get deployment metrics-server -n kube-system >/dev/null 2>&1; then
+  echo "EKS addons already installed"
+  exit 0
+fi
+
+if [ -z "$HELM" ]; then
   curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+  HELM="$(command -v helm || true)"
+  if [ -z "$HELM" ] && [ -x /usr/local/bin/helm ]; then
+    HELM=/usr/local/bin/helm
+  fi
+fi
+if [ -z "$HELM" ]; then
+  echo "helm nao encontrado apos instalacao" >&2
+  exit 127
 fi
 
 OIDC_ISSUER="$(aws eks describe-cluster --name "$EKS_CLUSTER" --region "$AWS_REGION" \
@@ -52,7 +83,7 @@ EOF
   aws iam attach-role-policy --role-name "$ROLE_NAME" --policy-arn "$POLICY_ARN"
 fi
 
-kubectl apply -f - <<EOF
+"$KUBECTL" apply -f - <<EOF
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -65,11 +96,11 @@ EOF
 VPC_ID="$(aws eks describe-cluster --name "$EKS_CLUSTER" --region "$AWS_REGION" \
   --query cluster.resourcesVpcConfig.vpcId --output text)"
 
-helm repo add eks https://aws.github.io/eks-charts 2>/dev/null || true
-helm repo add metrics-server https://kubernetes-sigs.github.io/metrics-server/ 2>/dev/null || true
-helm repo update
+"$HELM" repo add eks https://aws.github.io/eks-charts 2>/dev/null || true
+"$HELM" repo add metrics-server https://kubernetes-sigs.github.io/metrics-server/ 2>/dev/null || true
+"$HELM" repo update
 
-helm upgrade --install aws-load-balancer-controller eks/aws-load-balancer-controller \
+"$HELM" upgrade --install aws-load-balancer-controller eks/aws-load-balancer-controller \
   -n kube-system \
   --set clusterName="$EKS_CLUSTER" \
   --set serviceAccount.create=false \
@@ -77,10 +108,10 @@ helm upgrade --install aws-load-balancer-controller eks/aws-load-balancer-contro
   --set region="$AWS_REGION" \
   --set vpcId="$VPC_ID"
 
-helm upgrade --install metrics-server metrics-server/metrics-server \
+"$HELM" upgrade --install metrics-server metrics-server/metrics-server \
   -n kube-system \
   --set args[0]=--kubelet-insecure-tls
 
-kubectl wait --for=condition=available deployment/aws-load-balancer-controller \
+"$KUBECTL" wait --for=condition=available deployment/aws-load-balancer-controller \
   -n kube-system --timeout=300s
-kubectl rollout status deployment/metrics-server -n kube-system --timeout=300s
+"$KUBECTL" rollout status deployment/metrics-server -n kube-system --timeout=300s
